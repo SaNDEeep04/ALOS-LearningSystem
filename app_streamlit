@@ -16,7 +16,7 @@ summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
 # Initialize the GROQ client using the API key from the environment
 groq_api_key = os.getenv("GROQ_API_KEY")  # Ensure this is set in your environment
-client = Groq(api_key="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")
+client = Groq(api_key="YOUR-API-KEY-HERE")
 
 # Function to clean and preprocess the text
 def clean_text(text):
