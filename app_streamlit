@@ -1,0 +1,112 @@
+import os
+import streamlit as st
+import joblib
+import numpy as np
+from transformers import pipeline
+import PyPDF2
+from groq import Groq
+
+# Load the saved model, scaler, and label encoder for grade prediction
+model = joblib.load("student_performance_model.pkl")
+scaler = joblib.load("scaler.pkl")
+label_encoder = joblib.load("label_encoder.pkl")
+
+# Load the summarizer model
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+
+# Initialize the GROQ client using the API key from the environment
+groq_api_key = os.getenv("GROQ_API_KEY")  # Ensure this is set in your environment
+client = Groq(api_key="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")
+
+# Function to clean and preprocess the text
+def clean_text(text):
+    cleaned_text = text.replace("\n", " ").replace("\r", "")
+    return cleaned_text.strip()
+
+# Function to summarize text
+def summarize_text(text, max_length=150, min_length=50, do_sample=False):
+    max_chunk_size = 1000  # Tokens limit (adjust as needed)
+    chunks = [text[i:i + max_chunk_size] for i in range(0, len(text), max_chunk_size)]
+
+    summary = ""
+    for chunk in chunks:
+        try:
+            chunk_summary = summarizer(chunk, max_length=max_length, min_length=min_length, do_sample=do_sample)
+            summary += chunk_summary[0]['summary_text'] + "\n"
+        except Exception as e:
+            print(f"Error summarizing chunk: {e}")
+    return summary
+
+# Function to predict grade
+def predict_grade():
+    st.title("Student Performance Predictor")
+
+    G1 = st.number_input("First period grade (G1)", min_value=0, max_value=20, value=10)
+    G2 = st.number_input("Second period grade (G2)", min_value=0, max_value=20, value=10)
+    studytime = st.selectbox("Weekly study time", [1, 2, 3, 4], index=1)
+    failures = st.selectbox("Number of past class failures", [0, 1, 2, 3], index=0)
+    health = st.slider("Health status (1 = very bad, 5 = very good)", 1, 5, 3)
+    age = st.number_input("Student's age", min_value=15, max_value=22, value=16)
+    absences = st.number_input("Number of school absences", min_value=0, max_value=93, value=5)
+    sex = st.selectbox("Gender", ['M', 'F'])
+
+    input_data = np.array([[G1, G2, studytime, failures, health, age, absences, sex]])
+    sex_encoded = label_encoder.transform([sex])[0]
+    processed_input = scaler.transform([[G1, G2, studytime, failures, health, age, absences, sex_encoded]])
+
+    if st.button("Predict"):
+        prediction = model.predict(processed_input)
+        st.success(f"Predicted Final Grade (G3): {prediction[0]:.2f}")
+
+# Function to handle PDF Summarization
+def summarize_pdf():
+    st.title("PDF Summarizer")
+
+    uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
+    if uploaded_file is not None:
+        try:
+            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+            pdf_text = "".join(page.extract_text() for page in pdf_reader.pages)
+
+            if pdf_text:
+                cleaned_text = clean_text(pdf_text)
+                summary = summarize_text(cleaned_text)
+                st.write("Summary:")
+                st.write(summary)
+            else:
+                st.error("No text found in the uploaded PDF.")
+        except Exception as e:
+            st.error(f"An error occurred while processing the file: {e}")
+
+# Function to interact with GROQ API
+def groq_chatbot(user_input):
+    try:
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": user_input}],
+            model="llama3-8b-8192"  # Replace with your actual model name
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error communicating with GROQ API: {e}"
+
+# Function to handle chatbot interaction with GROQ
+def chatbot_interaction():
+    st.title("Educational Chatbot")
+
+    user_input = st.text_input("Ask me a question about a topic:")
+    if user_input:
+        bot_response = groq_chatbot(user_input)
+        st.write("Chatbot Response:")
+        st.write(bot_response)
+
+# Main code: Streamlit UI for tabs
+st.title("Student Learning Assistant")
+
+tab = st.radio("Select a page:", ("Grade Prediction", "PDF Summarizer", "Educational Chatbot"))
+
+if tab == "Grade Prediction":
+    predict_grade()
+elif tab == "PDF Summarizer":
+    summarize_pdf()
+elif tab == "Educational Chatbot":
+    chatbot_interaction()
